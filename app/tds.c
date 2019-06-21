@@ -225,22 +225,29 @@ void init_uart(void)
 int main(void)
 {
     uint16_t temp;
-    char temperature[6];
+    //        xxxx,xxxx
+    char text[11];
     init_uart();
     init_adc();
     // Timer setup (for delay_us)
     TIM2_PSCR = 0x4; // Prescaler: to 1MHz
     TIM2_CR1 |= TIM_CR1_CEN; // Start timer
-    uart_write("before read ds18b20 \r\n",22);
-    temperature[4]='\r';
-    temperature[5]='\n';
+    text[4]=',';
+    text[9]='\r';
+    text[10]='\n';
     while(1) {
         temp = (uint16_t)(100*read_ds18b20());
-        temperature[0]=(temp/1000) +0x30;
-        temperature[1]=(temp/100)%10 +0x30;
-        temperature[2]=(temp/10)%10 +0x30;
-        temperature[3]=(temp%10) +0x30;
-        uart_write(temperature,sizeof(temperature));
+        text[0]=(temp/1000) +0x30;
+        text[1]=(temp/100)%10 +0x30;
+        text[2]=(temp/10)%10 +0x30;
+        text[3]=(temp%10) +0x30;
+        delay(400000L);
+        temp = analog_read();
+        text[5]=(temp/1000) +0x30;
+        text[6]=(temp/100)%10 +0x30;
+        text[7]=(temp/10)%10 +0x30;
+        text[8]=(temp%10) +0x30;
+        uart_write(text,sizeof(text));
         delay(400000L);
     }
 }
