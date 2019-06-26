@@ -5,12 +5,13 @@
  */
 #include <string.h>
 #include <stdint.h>
+#include <float.h>
 #include "stm8.h"
 
 /* 1-Wire (DS18B20 data) pin */
 #define OW_PORT PA
 #define OW_PIN  PIN3
-
+#define VREF 3.0
 /* Simple busy loop delay */
 void delay(unsigned long count) {
     while (count--)
@@ -159,7 +160,7 @@ float read_ds18b20() {
         temp = ow_read_byte();
         t += ((temp & 0x0f) << 4);
         return t;
-        //display_ds_temperature(scratchpad[1], scratchpad[0]);
+        // display_ds_temperature(scratchpad[1], scratchpad[0]);
         //vle send to uart
 
     } else {
@@ -222,13 +223,178 @@ void init_uart(void)
     UART1_BRR2 = 0x03; UART1_BRR1 = 0x68; // 0x0683 coded funky way (see ref manual)
 }
 
+void _tm1637Start(void);
+void _tm1637Stop(void);
+void _tm1637ReadResult(void);
+void _tm1637WriteByte(unsigned char b);
+
+void _tm1637ClkHigh(void);
+void _tm1637ClkLow(void);
+void _tm1637DioHigh(void);
+void _tm1637DioLow(void);
+void tm1637SetBrightness(char brightness);
+
+const char segmentMap[] = {
+	0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, // 0-7
+	0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x5e, 0x79, 0x71, // 8-9, A-F
+	0x00
+};
+
+
+void tm1637Init(void)
+{
+	tm1637SetBrightness(8);
+}
+
+
+
+void tm1637DisplayDecimal(long TT,unsigned int displaySeparator)
+{ unsigned int ii;
+	unsigned int v = TT & 0x0000FFFF;
+	unsigned char digitArr[4];
+
+
+
+	//  unsigned char digitArr[4];
+	for (ii = 0; ii < 4; ++ii) {
+		digitArr[ii] = segmentMap[v % 10];
+		if (ii == 2 && displaySeparator) {
+			digitArr[ii] |= 1 << 7;
+		}
+		v /= 10;
+	}
+
+	_tm1637Start();
+	_tm1637WriteByte(0x40);
+	_tm1637ReadResult();
+	_tm1637Stop();
+
+	_tm1637Start();
+	_tm1637WriteByte(0xc0);
+	_tm1637ReadResult();
+
+	for (ii = 0; ii < 4; ++ii) {
+		_tm1637WriteByte(digitArr[3 - ii]);
+		_tm1637ReadResult();
+	}
+
+	_tm1637Stop();
+}
+
+// Valid brightness values: 0 - 8.
+// 0 = display off.
+void tm1637SetBrightness(char brightness)
+{
+	// Brightness command:
+	// 1000 0XXX = display off
+	// 1000 1BBB = display on, brightness 0-7
+	// X = don't care
+	// B = brightness
+	_tm1637Start();
+	_tm1637WriteByte(0x87 + brightness);
+	_tm1637ReadResult();
+	_tm1637Stop();
+}
+
+void _tm1637Start(void)
+{
+	_tm1637ClkHigh();
+	_tm1637DioHigh();
+	delay(5);
+	_tm1637DioLow();
+}
+
+void _tm1637Stop(void)
+{
+	_tm1637ClkLow();
+	delay(5);
+	_tm1637DioLow();
+	delay(5);
+	_tm1637ClkHigh();
+	delay(5);
+	_tm1637DioHigh();
+}
+
+void _tm1637ReadResult(void)
+{
+	_tm1637ClkLow();
+	delay(5);
+	// while (dio); // We're cheating here and not actually reading back the response.
+	_tm1637ClkHigh();
+	delay(5);
+	_tm1637ClkLow();
+}
+
+void _tm1637WriteByte(unsigned char b)
+{int ii;
+	for (ii = 0; ii < 8; ++ii) {
+		_tm1637ClkLow();
+		if (b & 0x01) {
+			_tm1637DioHigh();
+		}
+		else {
+			_tm1637DioLow();
+		}
+		delay(15);
+		b >>= 1;
+		_tm1637ClkHigh();
+		delay(15);
+	}
+}
+
+
+
+void _tm1637ClkHigh(void)
+{ 
+	//PB_ODR_bit.ODR5 = 1; //      _tm1637ClkHigh(); 
+
+	//  GPIO_WriteHigh(GPIOD,GPIO_PIN_2);
+	PD_ODR |= 1 << 2;
+}
+
+void _tm1637ClkLow(void)
+{ 
+	// GPIO_WriteLow(GPIOD,GPIO_PIN_2);
+
+	PD_ODR &= ~(1 << 2);
+
+	//    PB_ODR_bit.ODR5 = 0; //      _tm1637ClkHigh(); 
+
+}
+
+void _tm1637DioHigh(void)
+{
+	//PB_ODR_bit.ODR4 = 1; //  _tm1637DioHigh(); 
+	// GPIO_WriteHigh(GPIOD,GPIO_PIN_3);
+	PD_ODR |= 1 << 3;
+
+}
+
+void _tm1637DioLow(void)
+{
+	PD_ODR &= ~(1 << 3);
+
+	//GPIO_WriteLow(GPIOD,GPIO_PIN_3);
+	//PB_ODR_bit.ODR4 = 0; //  _tm1637DioHigh(); 
+
+}
+
 int main(void)
 {
-    uint16_t temp;
+
+    uint16_t temp,i;
     //        xxxx,xxxx
     char text[11];
+    volatile float Voltage; 
     init_uart();
     init_adc();
+
+	//display on PD2/PD3-CLK/DIO
+	PD_DDR = (1 << 3) | (1 << 2); // output mode
+	PD_CR1 = (1 << 3) | (1 << 2); // push-pull
+	PD_CR2 = (1 << 3) | (1 << 2); // up to 10MHz speed
+	tm1637Init();
+
     // Timer setup (for delay_us)
     TIM2_PSCR = 0x4; // Prescaler: to 1MHz
     TIM2_CR1 |= TIM_CR1_CEN; // Start timer
@@ -236,18 +402,38 @@ int main(void)
     text[9]='\r';
     text[10]='\n';
     while(1) {
+        // read temperature value
         temp = (uint16_t)(100*read_ds18b20());
         text[0]=(temp/1000) +0x30;
         text[1]=(temp/100)%10 +0x30;
         text[2]=(temp/10)%10 +0x30;
         text[3]=(temp%10) +0x30;
         delay(400000L);
-        temp = analog_read();
-        text[5]=(temp/1000) +0x30;
-        text[6]=(temp/100)%10 +0x30;
-        text[7]=(temp/10)%10 +0x30;
-        text[8]=(temp%10) +0x30;
+ 
+        tm1637DisplayDecimal(temp, 0); // eg 37:12
+        temp = 0;
+        for(i=0;i<20;i++)
+        {
+            temp += analog_read();
+            delay(10000L);
+        }
+        temp = temp/20;
+        //calculate tds value
+        Voltage = (float)(temp*(float)VREF / 1024.0);// 10bit adc
+        Voltage *=1000;
+        text[5]=(char)(Voltage)/1000 + 0x30;
+        text[6]=((char)(Voltage)/100)%10 + 0x30;
+        text[7]=((char)(Voltage)/10)%10 + 0x30;
+        text[8]=((char)(Voltage)%10) + 0x30;
+        temp=(text[5]-0x30)*1000 +
+             (text[6]-0x30)*100 +
+             (text[7]-0x30)*10 +
+             (text[8]-0x30);
+        // Voltage = (float)(Voltage/(1.0+0.02*(temp-25.0)));
+
+        //ppm_value = (uint16_t)(110*Voltage*Voltage + 169*Voltage -1);
         uart_write(text,sizeof(text));
         delay(400000L);
+        tm1637DisplayDecimal(temp, 0); // eg 37:12
     }
 }
