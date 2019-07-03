@@ -9,15 +9,47 @@
 #include "stm8.h"
 
 /* 1-Wire (DS18B20 data) pin */
+
+#define OW_INPUT_MODE()     PORT(OW_PORT,DDR) &= ~OW_PIN
+#define OW_OUTPUT_MODE()    PORT(OW_PORT,DDR) |= OW_PIN
+#define OW_LOW()            PORT(OW_PORT,ODR) &= ~OW_PIN
+#define OW_HIGH()           PORT(OW_PORT,ODR) |= OW_PIN
+#define OW_READ()           (PORT(OW_PORT,IDR) & OW_PIN)
+
 #define OW_PORT PA
 #define OW_PIN  PIN3
-#define VREF 3.0
+#define DEBUG
+#define VREF 3.3
+#define SCOUNT 200
 /* Simple busy loop delay */
-void delay(unsigned long count) {
-    while (count--)
-        nop();
+
+#define F_CPU 16000000
+
+static inline void _delay_cycl( unsigned short __ticks )
+{
+#define T_COUNT(x) (( F_CPU * x / 1000000UL )-5)/5)
+__asm__("nop\n nop\n"); 
+do { 		// ASM: ldw X, #tick; lab$: decw X; tnzw X; jrne lab$
+            __ticks--;//      2c;                 1c;     2c    ; 1/2c   
+    } while ( __ticks );
+__asm__("nop\n");
 }
 
+static inline void _delay_us( const unsigned short __us )
+{
+	_delay_cycl( (unsigned short)( T_COUNT(__us) );
+}
+
+void _delay_ms( unsigned short __ms )
+{
+	while ( __ms-- )
+	{
+		_delay_us( 1000 );
+	}
+}
+
+/********************** uart routines ***************************/
+#if defined DEBUG
 int uart_write(const char *str, char len) {
     char i;
     for(i = 0; i < len; i++) {
@@ -27,6 +59,20 @@ int uart_write(const char *str, char len) {
     return(i); // Bytes sent
 }
 
+
+void init_uart(void)
+{
+    /* Set clock to full speed (16 Mhz) */
+    CLK_CKDIVR = 0;
+
+    // Setup UART1 (TX=D5)
+    UART1_CR2 |= UART_CR2_TEN; // Transmitter enable
+    // UART1_CR2 |= UART_CR2_REN; // Receiver enable
+    UART1_CR3 &= ~(UART_CR3_STOP1 | UART_CR3_STOP2); // 1 stop bit
+    // 9600 baud: UART_DIV = 16000000/9600 ~ 1667 = 0x0683
+    UART1_BRR2 = 0x03; UART1_BRR1 = 0x68; // 0x0683 coded funky way (see ref manual)
+}
+#endif
 /********************** OneWire/DS18B20 routines ***************************/
 void delay_us(uint16_t i) {
     if (i < 9) { // FIXME: Really ugly
@@ -42,12 +88,6 @@ void delay_us(uint16_t i) {
             return;
     }
 }
-
-#define OW_INPUT_MODE()     PORT(OW_PORT,DDR) &= ~OW_PIN
-#define OW_OUTPUT_MODE()    PORT(OW_PORT,DDR) |= OW_PIN
-#define OW_LOW()            PORT(OW_PORT,ODR) &= ~OW_PIN
-#define OW_HIGH()           PORT(OW_PORT,ODR) |= OW_PIN
-#define OW_READ()           (PORT(OW_PORT,IDR) & OW_PIN)
 
 void ow_pull_low(unsigned int us) {
     OW_OUTPUT_MODE();
@@ -114,6 +154,7 @@ unsigned int ow_convert_temperature() {
     }
 }
 
+/*
 void display_ds_temperature(uint8_t high, uint8_t low) {
     uint8_t is_negative = 0;
     uint16_t decimals = 0; // 4 decimals (e.g. decimals 625 means 0.0625)
@@ -139,7 +180,7 @@ void display_ds_temperature(uint8_t high, uint8_t low) {
     // vle send to uart
     // display_number_dot((temp*1000 + ((decimals+5)/10) + 50)/100, 2, is_negative);
 }
-
+*/
 float read_ds18b20() {
     // uint8_t i;
     // uint8_t scratchpad[9];
@@ -166,7 +207,9 @@ float read_ds18b20() {
     } else {
         /* DS18B20 was not detected */
         // vle send to uart
+#if defined DEBUG
         uart_write("can not read temperature",strlen("can not read temperature"));
+#endif
         return 0;
         // output_max(0x8, 0xa);
     }
@@ -175,52 +218,24 @@ float read_ds18b20() {
 /***************************************************************************/
 
 void init_adc() {
-    ADC_CSR = 0;
-    ADC_CR1 = 0;
-    ADC_CR2 = 0;
-    ADC_CR3 = 0;
+     PC_DDR &= ~(0x1 << 4);
+     PC_CR1 &= !(0x1 << 4);
+     ADC_CSR |= ((0x0F)&2); // select channel
+     ADC_CR2 |= (1<<3); // Right Aligned Data
+     ADC_CR1 |= (1<<0); // ADC ON 
 
-/*
-    ADC_DRH = 0;
-    ADC_DRL = 0;
-    ADC_TDRH = 0;
-    ADC_TDRL = 0;
-    ADC_HTRH = 0;
-    ADC_HTRL = 0;
-    ADC_LTRH = 0;
-    ADC_LTRL = 0;
-    ADC_AWSRH = 0;
-    ADC_AWSRL = 0;
-    ADC_AWCRH = 0;
-    ADC_AWCRL = 0;
-*/
-    ADC_CSR = 2; // Select channel 2 (AIN2=PC4)
-
-    ADC_CR1 |= ADC_CR1_ADON; // ADON
-    ADC_CR2 &= ~ADC_CR2_ALIGN; // Align left
-
-    delay(1000); // Give little time to be ready for first conversion
+    _delay_ms(1000); // Give little time to be ready for first conversion
 }
 
-uint16_t analog_read() {
-    ADC_CR1 &= ~ADC_CR1_CONT; // Single conversion mode
-    ADC_CR1 |= ADC_CR1_ADON; // Start conversion
-    do { nop(); } while ((ADC_CSR >> 7) == 0);
-    ADC_CSR &= ~ADC_CSR_EOC; // Clear "End of conversion"-flag
-    return (ADC_DRH << 2) | (ADC_DRL >> 6);  // Left aligned
-}
-
-void init_uart(void)
-{
-    /* Set clock to full speed (16 Mhz) */
-    CLK_CKDIVR = 0;
-
-    // Setup UART1 (TX=D5)
-    UART1_CR2 |= UART_CR2_TEN; // Transmitter enable
-    // UART1_CR2 |= UART_CR2_REN; // Receiver enable
-    UART1_CR3 &= ~(UART_CR3_STOP1 | UART_CR3_STOP2); // 1 stop bit
-    // 9600 baud: UART_DIV = 16000000/9600 ~ 1667 = 0x0683
-    UART1_BRR2 = 0x03; UART1_BRR1 = 0x68; // 0x0683 coded funky way (see ref manual)
+unsigned int analog_read(){
+     unsigned int val=0;
+     ADC_CR1 |= (1<<0); // ADC Start Conversion
+     while(((ADC_CSR)&(1<<7))== 0); // Wait till EOC
+     val |= (unsigned int)ADC_DRL;
+     val |= (unsigned int)ADC_DRH<<8;
+     val &= 0x03ff;
+     ADC_CSR &= ~ADC_CSR_EOC; //clear EOC
+     return (val);
 }
 
 void _tm1637Start(void);
@@ -300,28 +315,28 @@ void _tm1637Start(void)
 {
 	_tm1637ClkHigh();
 	_tm1637DioHigh();
-	delay(5);
+	_delay_ms(5);
 	_tm1637DioLow();
 }
 
 void _tm1637Stop(void)
 {
 	_tm1637ClkLow();
-	delay(5);
+	_delay_ms(5);
 	_tm1637DioLow();
-	delay(5);
+	_delay_ms(5);
 	_tm1637ClkHigh();
-	delay(5);
+	_delay_ms(5);
 	_tm1637DioHigh();
 }
 
 void _tm1637ReadResult(void)
 {
 	_tm1637ClkLow();
-	delay(5);
+	_delay_ms(5);
 	// while (dio); // We're cheating here and not actually reading back the response.
 	_tm1637ClkHigh();
-	delay(5);
+	_delay_ms(5);
 	_tm1637ClkLow();
 }
 
@@ -335,10 +350,10 @@ void _tm1637WriteByte(unsigned char b)
 		else {
 			_tm1637DioLow();
 		}
-		delay(15);
+		_delay_ms(15);
 		b >>= 1;
 		_tm1637ClkHigh();
-		delay(15);
+		_delay_ms(15);
 	}
 }
 
@@ -379,14 +394,45 @@ void _tm1637DioLow(void)
 
 }
 
+int getMedianNum(int* bArray, uint8_t count) 
+{
+    int i, j, bTemp;
+    int bTab[SCOUNT];
+
+      for (i = 0; i<SCOUNT; i++)
+	  bTab[i] = bArray[i];
+      for (j = 0; j < SCOUNT - 1; j++) 
+      {
+	  for (i = 0; i < SCOUNT - j - 1; i++) 
+          {
+	    if (bTab[i] > bTab[i + 1]) 
+            {
+		bTemp = bTab[i];
+	        bTab[i] = bTab[i + 1];
+		bTab[i + 1] = bTemp;
+	     }
+	  }
+      }
+      if ((count & 1) > 0)
+	bTemp = bTab[(SCOUNT - 1) / 2];
+      else
+	bTemp = (bTab[SCOUNT / 2] + bTab[SCOUNT / 2 - 1]) / 2;
+      return bTemp;
+}
+
 int main(void)
 {
 
-    uint16_t temp,i;
-    //        xxxx,xxxx
-    char text[11];
-    volatile float Voltage; 
+    float temp;
+    uint16_t ppm_value;
+    uint8_t i;
+#if defined DEBUG
+    // char text[6];
+#endif
+    float Voltage;
+#if defined DEBUG
     init_uart();
+#endif
     init_adc();
 
 	//display on PD2/PD3-CLK/DIO
@@ -398,42 +444,24 @@ int main(void)
     // Timer setup (for delay_us)
     TIM2_PSCR = 0x4; // Prescaler: to 1MHz
     TIM2_CR1 |= TIM_CR1_CEN; // Start timer
-    text[4]=',';
-    text[9]='\r';
-    text[10]='\n';
+
     while(1) {
         // read temperature value
-        temp = (uint16_t)(100*read_ds18b20());
-        text[0]=(temp/1000) +0x30;
-        text[1]=(temp/100)%10 +0x30;
-        text[2]=(temp/10)%10 +0x30;
-        text[3]=(temp%10) +0x30;
-        delay(400000L);
- 
-        tm1637DisplayDecimal(temp, 0); // eg 37:12
-        temp = 0;
-        for(i=0;i<20;i++)
+        temp = read_ds18b20(); 
+        // tm1637DisplayDecimal(temp, 0); // eg 37:12
+        Voltage = 0;
+        for(i=0;i<SCOUNT;i++)
         {
-            temp += analog_read();
-            delay(10000L);
+            Voltage += analog_read();
+            _delay_ms(5);
         }
-        temp = temp/20;
-        //calculate tds value
-        Voltage = (float)(temp*(float)VREF / 1024.0);// 10bit adc
-        Voltage *=1000;
-        text[5]=(char)(Voltage)/1000 + 0x30;
-        text[6]=((char)(Voltage)/100)%10 + 0x30;
-        text[7]=((char)(Voltage)/10)%10 + 0x30;
-        text[8]=((char)(Voltage)%10) + 0x30;
-        temp=(text[5]-0x30)*1000 +
-             (text[6]-0x30)*100 +
-             (text[7]-0x30)*10 +
-             (text[8]-0x30);
-        // Voltage = (float)(Voltage/(1.0+0.02*(temp-25.0)));
-
-        //ppm_value = (uint16_t)(110*Voltage*Voltage + 169*Voltage -1);
-        uart_write(text,sizeof(text));
-        delay(400000L);
-        tm1637DisplayDecimal(temp, 0); // eg 37:12
+        Voltage = (float)(Voltage/SCOUNT) * (float)VREF / 1024.0;
+        Voltage = (float)(Voltage/(1.0+0.02*(temp-25.0)));
+        ppm_value = (uint16_t)(143.82*Voltage*Voltage*Voltage*Voltage - 418.29*Voltage*Voltage*Voltage + 458.42*Voltage*Voltage + 183.44*Voltage - 15.603);
+#if defined DEBUG
+        // uart_write(text,sizeof(text));
+#endif
+        // _delay_ms(350);
+        tm1637DisplayDecimal(ppm_value, 0); // eg 37:12
     }
 }
