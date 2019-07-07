@@ -2,6 +2,8 @@
 /*
  * Analog input to port D4
  * ds18b20 input to port A3
+ * TM1637 CLK D2
+ * TM1637 DIO D3
  */
 #include <string.h>
 #include <stdint.h>
@@ -229,6 +231,9 @@ void init_adc() {
 
 unsigned int analog_read(){
      unsigned int val=0;
+     PC_DDR &= ~(0x1 << 4);
+     PC_CR1 &= !(0x1 << 4);
+     ADC_CSR |= ((0x0F)&2); // select channel
      ADC_CR1 |= (1<<0); // ADC Start Conversion
      while(((ADC_CSR)&(1<<7))== 0); // Wait till EOC
      val |= (unsigned int)ADC_DRL;
@@ -254,7 +259,16 @@ const char segmentMap[] = {
 	0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x5e, 0x79, 0x71, // 8-9, A-F
 	0x00
 };
-
+/*
+     A
+     -
+  F| G |B
+     -
+  E|   |C
+     -
+     D
+ 
+*/
 
 void tm1637Init(void)
 {
@@ -270,7 +284,6 @@ void tm1637DisplayDecimal(long TT,unsigned int displaySeparator)
 
 
 
-	//  unsigned char digitArr[4];
 	for (ii = 0; ii < 4; ++ii) {
 		digitArr[ii] = segmentMap[v % 10];
 		if (ii == 2 && displaySeparator) {
@@ -278,7 +291,6 @@ void tm1637DisplayDecimal(long TT,unsigned int displaySeparator)
 		}
 		v /= 10;
 	}
-
 	_tm1637Start();
 	_tm1637WriteByte(0x40);
 	_tm1637ReadResult();
@@ -425,22 +437,23 @@ int main(void)
 
     float temp;
     uint16_t ppm_value;
+    uint16_t adc;
     uint8_t i;
+    
 #if defined DEBUG
-    // char text[6];
+    char text[6];
 #endif
     float Voltage;
 #if defined DEBUG
     init_uart();
 #endif
+    _delay_ms(2000);
     init_adc();
-
 	//display on PD2/PD3-CLK/DIO
 	PD_DDR = (1 << 3) | (1 << 2); // output mode
 	PD_CR1 = (1 << 3) | (1 << 2); // push-pull
 	PD_CR2 = (1 << 3) | (1 << 2); // up to 10MHz speed
 	tm1637Init();
-
     // Timer setup (for delay_us)
     TIM2_PSCR = 0x4; // Prescaler: to 1MHz
     TIM2_CR1 |= TIM_CR1_CEN; // Start timer
@@ -449,19 +462,40 @@ int main(void)
         // read temperature value
         temp = read_ds18b20(); 
         // tm1637DisplayDecimal(temp, 0); // eg 37:12
-        Voltage = 0;
+        adc = 0;
         for(i=0;i<SCOUNT;i++)
         {
-            Voltage += analog_read();
+            adc += analog_read();
             _delay_ms(5);
         }
-        Voltage = (float)(Voltage/SCOUNT) * (float)VREF / 1024.0;
+        Voltage = (float)((adc/SCOUNT) * (float)VREF / 1024.0);
         Voltage = (float)(Voltage/(1.0+0.02*(temp-25.0)));
-        ppm_value = (uint16_t)(143.82*Voltage*Voltage*Voltage*Voltage - 418.29*Voltage*Voltage*Voltage + 458.42*Voltage*Voltage + 183.44*Voltage - 15.603);
+        // ppm_value = (uint16_t)(143.82*Voltage*Voltage*Voltage*Voltage - 418.29*Voltage*Voltage*Voltage + 458.42*Voltage*Voltage + 183.44*Voltage - 15.603);
+        // y = 405.5x - 0.0594
+        ppm_value = (uint16_t)(405.5*Voltage - 0.0594);
+        adc = (uint16_t)(Voltage*100.0);
 #if defined DEBUG
-        // uart_write(text,sizeof(text));
+        text[0] = adc/1000 +0x30;
+        text[1] = (adc/100)%10 +0x30;
+        text[2] = (adc/10)%10 +0x30;
+        text[3] = adc%10 +0x30;
+        text[4] = '\r';
+        text[5] = '\n';
+        uart_write(text,sizeof(text));
 #endif
         // _delay_ms(350);
-        tm1637DisplayDecimal(ppm_value, 0); // eg 37:12
+        if(ppm_value > 300)
+        {
+            tm1637SetBrightness(0);
+            _delay_ms(3000);
+            tm1637SetBrightness(8);
+            tm1637DisplayDecimal(ppm_value, 0); // eg 37:12
+            _delay_ms(3000);
+        }
+        else
+        {
+            tm1637SetBrightness(8);
+            tm1637DisplayDecimal(ppm_value, 0); // eg 37:12
+        }
     }
 }
