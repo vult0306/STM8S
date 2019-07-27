@@ -44,3 +44,5 @@ clean:
 
 flash: $(PROGRAM).ihx
 	stm8flash -c $(PROGRAMMER) -p $(DEVICE) -w $(PROGRAM).ihx
+default:
+	stm8flash -c $(PROGRAMMER) -p $(DEVICE) -s opt -w factory_defaults.bin
