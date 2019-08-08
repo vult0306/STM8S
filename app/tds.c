@@ -15,7 +15,7 @@
 #define VREF 3.3
 #define SCOUNT 50
 // #define DS18B20
-#define NTC
+// #define NTC
 #define TDS
 #define TM1637
 
@@ -38,11 +38,15 @@
 #if defined NTC
 #define NTC_ADC_CHN 3
 #define NTC_ADC_PIN PIN2
+#endif
 #if defined TM1637
 #define TM1637_CLK_PIN 6
 #define TM1637_DIO_PIN 7
 #endif
-uint8_t adc_ntc[786]={
+
+#if defined NTC
+uint8_t adc_ntc[786]=
+{
 100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,
 99,99,
 98,98,
@@ -148,27 +152,24 @@ uint8_t adc_ntc[786]={
 
 #define F_CPU 16000000
 
-static inline void _delay_cycl( unsigned short __ticks )
-{
-#define T_COUNT(x) (( F_CPU * x / 1000000UL )-5)/5)
+static inline void _delay_cycl( unsigned short __ticks ){
+#define T_COUNT(x) ((( F_CPU * x / 1000000UL )-5)/5)
 __asm__("nop\n nop\n"); 
-do { 		// ASM: ldw X, #tick; lab$: decw X; tnzw X; jrne lab$
+do {         // ASM: ldw X, #tick; lab$: decw X; tnzw X; jrne lab$
             __ticks--;//      2c;                 1c;     2c    ; 1/2c   
     } while ( __ticks );
 __asm__("nop\n");
 }
 
-static inline void _delay_us( const unsigned short __us )
-{
-	_delay_cycl( (unsigned short)( T_COUNT(__us) );
+static inline void _delay_us( const unsigned short __us ){
+    _delay_cycl( (unsigned short)( T_COUNT(__us) ) );
 }
 
-void _delay_ms( unsigned short __ms )
-{
-	while ( __ms-- )
-	{
-		_delay_us( 1000 );
-	}
+void _delay_ms( unsigned short __ms ){
+    while ( __ms-- )
+    {
+        _delay_us( 1000 );
+    }
 }
 
 void delay_us(uint16_t i) {
@@ -345,20 +346,14 @@ float read_ds18b20() {
 /***************************************************************************/
 
 void init_adc() {
-     PD_DDR &= ~(TDS_ADC_PIN | NTC_ADC_PIN);
-     PD_CR1 &= !(TDS_ADC_PIN | NTC_ADC_PIN);
-     // PD_DDR &= ~(NTC_ADC_PIN);
-     // PD_CR1 &= !(NTC_ADC_PIN);
-     // PD_DDR &= ~(0x1 << 2);
-     // PD_CR1 &= ~(0x1 << 3);
-     // PD_CR1 &= ~(0x1 << 2);
-
-// #if defined TDS
-     // ADC_CSR |= ((0x0F)&TDS_ADC_CHN); // PD3-AIN4
-// #endif
-// #if defined NTC
-     // ADC_CSR |= ((0x0F)&NTC_ADC_CHN); // PD2-AIN3
-// #endif
+#if defined TDS
+     PD_DDR &= ~(TDS_ADC_PIN);
+     PD_CR1 &= !(TDS_ADC_PIN);
+#endif
+#if defined NTC
+     PD_DDR &= ~(NTC_ADC_PIN);
+     PD_CR1 &= !(NTC_ADC_PIN);
+#endif
      ADC_CR2 |= (1<<3); // Right Aligned Data
      ADC_CR2 |= (1<<1); // Right Aligned Data
      ADC_CR1 |= (1<<0); // ADC ON 
@@ -368,20 +363,6 @@ void init_adc() {
 
 unsigned int analog_read(uint8_t channel){
      unsigned int val=0;
-     // PD_DDR &= ~(0x1 << 3);
-     // PD_CR1 &= !(0x1 << 3);
-     // PD_DDR &= ~(0x1 << 2);
-     // PD_CR1 &= !(0x1 << 2);
-    // if(channel == TDS_ADC_CHN)
-    // {
-        // PD_DDR &= ~(0x1 << 3);
-        // PD_CR1 &= !(0x1 << 3);
-    // }
-    // else if(channel == NTC_ADC_CHN)
-    // {
-        // PD_DDR &= ~(0x1 << 2);
-        // PD_CR1 &= !(0x1 << 2);
-    // }
 
      ADC_CSR |= ((0x0F)&channel); // select channel
      ADC_CR1 |= (1<<0); // ADC Start Conversion
@@ -390,8 +371,6 @@ unsigned int analog_read(uint8_t channel){
      val |= (unsigned int)ADC_DRH<<8;
      val &= 0x03ff;
      ADC_CSR &= ~ADC_CSR_EOC; //clear EOC
-     // if(channel == NTC_ADC_CHN)
-         // val = adc_ntc[val];
      return (val);
 }
 
@@ -408,9 +387,9 @@ void _tm1637DioLow(void);
 void tm1637SetBrightness(char brightness);
 
 const char segmentMap[] = {
-	0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, // 0-7
-	0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x5e, 0x79, 0x71, // 8-9, A-F
-	0x00
+    0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, // 0-7
+    0x7f, 0x6f, 0x77, 0x7c, 0x39, 0x5e, 0x79, 0x71, // 8-9, A-F
+    0x00
 };
 /*
      A
@@ -425,218 +404,214 @@ const char segmentMap[] = {
 
 void tm1637Init(void)
 {
-	tm1637SetBrightness(8);
+    tm1637SetBrightness(8);
 }
 
 
 
 void tm1637DisplayDecimal(long TT,unsigned int displaySeparator)
 { unsigned int ii;
-	unsigned int v = TT & 0x0000FFFF;
-	unsigned char digitArr[4];
+    unsigned int v = TT & 0x0000FFFF;
+    unsigned char digitArr[4];
 
 
 
-	for (ii = 0; ii < 4; ++ii) {
-		digitArr[ii] = segmentMap[v % 10];
-		if (ii == 2 && displaySeparator) {
-			digitArr[ii] |= 1 << 7;
-		}
-		v /= 10;
-	}
-	_tm1637Start();
-	_tm1637WriteByte(0x40);
-	_tm1637ReadResult();
-	_tm1637Stop();
+    for (ii = 0; ii < 4; ++ii) {
+        digitArr[ii] = segmentMap[v % 10];
+        if (ii == 2 && displaySeparator) {
+            digitArr[ii] |= 1 << 7;
+        }
+        v /= 10;
+    }
+    _tm1637Start();
+    _tm1637WriteByte(0x40);
+    _tm1637ReadResult();
+    _tm1637Stop();
 
-	_tm1637Start();
-	_tm1637WriteByte(0xc0);
-	_tm1637ReadResult();
+    _tm1637Start();
+    _tm1637WriteByte(0xc0);
+    _tm1637ReadResult();
 
-	for (ii = 0; ii < 4; ++ii) {
-		_tm1637WriteByte(digitArr[3 - ii]);
-		_tm1637ReadResult();
-	}
+    for (ii = 0; ii < 4; ++ii) {
+        _tm1637WriteByte(digitArr[3 - ii]);
+        _tm1637ReadResult();
+    }
 
-	_tm1637Stop();
+    _tm1637Stop();
 }
 
 // Valid brightness values: 0 - 8.
 // 0 = display off.
 void tm1637SetBrightness(char brightness)
 {
-	// Brightness command:
-	// 1000 0XXX = display off
-	// 1000 1BBB = display on, brightness 0-7
-	// X = don't care
-	// B = brightness
-	_tm1637Start();
-	_tm1637WriteByte(0x87 + brightness);
-	_tm1637ReadResult();
-	_tm1637Stop();
+    // Brightness command:
+    // 1000 0XXX = display off
+    // 1000 1BBB = display on, brightness 0-7
+    // X = don't care
+    // B = brightness
+    _tm1637Start();
+    _tm1637WriteByte(0x87 + brightness);
+    _tm1637ReadResult();
+    _tm1637Stop();
 }
 
 void _tm1637Start(void)
 {
-	_tm1637ClkHigh();
-	_tm1637DioHigh();
-	_delay_ms(5);
-	_tm1637DioLow();
+    _tm1637ClkHigh();
+    _tm1637DioHigh();
+    _delay_ms(5);
+    _tm1637DioLow();
 }
 
 void _tm1637Stop(void)
 {
-	_tm1637ClkLow();
-	_delay_ms(5);
-	_tm1637DioLow();
-	_delay_ms(5);
-	_tm1637ClkHigh();
-	_delay_ms(5);
-	_tm1637DioHigh();
+    _tm1637ClkLow();
+    _delay_ms(5);
+    _tm1637DioLow();
+    _delay_ms(5);
+    _tm1637ClkHigh();
+    _delay_ms(5);
+    _tm1637DioHigh();
 }
 
 void _tm1637ReadResult(void)
 {
-	_tm1637ClkLow();
-	_delay_ms(5);
-	// while (dio); // We're cheating here and not actually reading back the response.
-	_tm1637ClkHigh();
-	_delay_ms(5);
-	_tm1637ClkLow();
+    _tm1637ClkLow();
+    _delay_ms(5);
+    // while (dio); // We're cheating here and not actually reading back the response.
+    _tm1637ClkHigh();
+    _delay_ms(5);
+    _tm1637ClkLow();
 }
 
 void _tm1637WriteByte(unsigned char b)
 {int ii;
-	for (ii = 0; ii < 8; ++ii) {
-		_tm1637ClkLow();
-		if (b & 0x01) {
-			_tm1637DioHigh();
-		}
-		else {
-			_tm1637DioLow();
-		}
-		_delay_ms(15);
-		b >>= 1;
-		_tm1637ClkHigh();
-		_delay_ms(15);
-	}
+    for (ii = 0; ii < 8; ++ii) {
+        _tm1637ClkLow();
+        if (b & 0x01) {
+            _tm1637DioHigh();
+        }
+        else {
+            _tm1637DioLow();
+        }
+        _delay_ms(15);
+        b >>= 1;
+        _tm1637ClkHigh();
+        _delay_ms(15);
+    }
 }
 
 
 
 void _tm1637ClkHigh(void)
 { 
-	//PB_ODR_bit.ODR5 = 1; //      _tm1637ClkHigh(); 
+    //PB_ODR_bit.ODR5 = 1; //      _tm1637ClkHigh(); 
 
-	//  GPIO_WriteHigh(GPIOD,GPIO_PIN_2);
-	PC_ODR |= 1 << TM1637_CLK_PIN;
+    //  GPIO_WriteHigh(GPIOD,GPIO_PIN_2);
+    PC_ODR |= 1 << TM1637_CLK_PIN;
 }
 
 void _tm1637ClkLow(void)
 { 
-	// GPIO_WriteLow(GPIOD,GPIO_PIN_2);
+    // GPIO_WriteLow(GPIOD,GPIO_PIN_2);
 
-	PC_ODR &= ~(1 << TM1637_CLK_PIN);
+    PC_ODR &= ~(1 << TM1637_CLK_PIN);
 
-	//    PB_ODR_bit.ODR5 = 0; //      _tm1637ClkHigh(); 
+    //    PB_ODR_bit.ODR5 = 0; //      _tm1637ClkHigh(); 
 
 }
 
 void _tm1637DioHigh(void)
 {
-	//PB_ODR_bit.ODR4 = 1; //  _tm1637DioHigh(); 
-	// GPIO_WriteHigh(GPIOD,GPIO_PIN_3);
-	PC_ODR |= 1 << TM1637_DIO_PIN;
+    //PB_ODR_bit.ODR4 = 1; //  _tm1637DioHigh(); 
+    // GPIO_WriteHigh(GPIOD,GPIO_PIN_3);
+    PC_ODR |= 1 << TM1637_DIO_PIN;
 
 }
 
 void _tm1637DioLow(void)
 {
-	PC_ODR &= ~(1 << TM1637_DIO_PIN);
+    PC_ODR &= ~(1 << TM1637_DIO_PIN);
 
-	//GPIO_WriteLow(GPIOD,GPIO_PIN_3);
-	//PB_ODR_bit.ODR4 = 0; //  _tm1637DioHigh(); 
+    //GPIO_WriteLow(GPIOD,GPIO_PIN_3);
+    //PB_ODR_bit.ODR4 = 0; //  _tm1637DioHigh(); 
 
-}
-
-int getMedianNum(int* bArray, uint8_t count) 
-{
-    int i, j, bTemp;
-    int bTab[SCOUNT];
-
-      for (i = 0; i<SCOUNT; i++)
-	  bTab[i] = bArray[i];
-      for (j = 0; j < SCOUNT - 1; j++) 
-      {
-	  for (i = 0; i < SCOUNT - j - 1; i++) 
-          {
-	    if (bTab[i] > bTab[i + 1]) 
-            {
-		bTemp = bTab[i];
-	        bTab[i] = bTab[i + 1];
-		bTab[i + 1] = bTemp;
-	     }
-	  }
-      }
-      if ((count & 1) > 0)
-	bTemp = bTab[(SCOUNT - 1) / 2];
-      else
-	bTemp = (bTab[SCOUNT / 2] + bTab[SCOUNT / 2 - 1]) / 2;
-      return bTemp;
 }
 #endif
 
 int main(void)
 {
-
+#if defined DS18B20
     float temp=0.0;
+    float Voltage;
+#endif
+#if defined NTC
+    uint16_t temp_t=0;
+    float Voltage;
+#endif
     uint16_t ppm_value;
     uint16_t adc;
     uint8_t i;
-    
+
 #if defined DEBUG
-    char text[11];
-    uint16_t temp_t=0;
+    char text[16]={' '};
 #endif
-    float Voltage;
 #if defined DEBUG
     init_uart();
 #endif
     _delay_ms(2000);
     init_adc();
 #if defined TM1637
-	//display on PD2/PD3-CLK/DIO
-	PC_DDR = (1 << TM1637_CLK_PIN) | (1 << TM1637_DIO_PIN); // output mode
-	PC_CR1 = (1 << TM1637_CLK_PIN) | (1 << TM1637_DIO_PIN); // push-pull
-	PC_CR2 = (1 << TM1637_CLK_PIN) | (1 << TM1637_DIO_PIN); // up to 10MHz speed
-	tm1637Init();
+    //display on PD2/PD3-CLK/DIO
+    PC_DDR = (1 << TM1637_CLK_PIN) | (1 << TM1637_DIO_PIN); // output mode
+    PC_CR1 = (1 << TM1637_CLK_PIN) | (1 << TM1637_DIO_PIN); // push-pull
+    PC_CR2 = (1 << TM1637_CLK_PIN) | (1 << TM1637_DIO_PIN); // up to 10MHz speed
+    tm1637Init();
 #endif
     // Timer setup (for delay_us)
     TIM2_PSCR = 0x4; // Prescaler: to 1MHz
     TIM2_CR1 |= TIM_CR1_CEN; // Start timer
 
     while(1) {
-        // tm1637DisplayDecimal(temp, 0); // eg 37:12
         adc = 0;
+#if defined NTC
+        temp = 0.0;
+#endif
+#if defined NTC
         temp_t = 0;
+#endif
         for(i=0;i<SCOUNT;i++)
         {
             adc += analog_read(TDS_ADC_CHN);
             _delay_ms(5);
+#if defined DS18B20
+            temp += read_ds18b20(); 
+#endif
+#if defined NTC
             temp_t += analog_read(NTC_ADC_CHN); 
+#endif
         }
         adc = adc/SCOUNT;
+#if defined NTC
         temp_t = temp_t/SCOUNT; 
-
-        Voltage = (float)(adc * (float)VREF / 1024.0);
+#endif
 #if defined DS18B20
         Voltage = (float)(Voltage/(1.0+0.02*(temp-25.0)));
 #elseif defined NTC
         Voltage = (float)(Voltage/(1.0+0.02*(temp_t-25.0)));
+#else
+        if( adc > 1000 )
+        {
+            ppm_value = adc+15;
+        }
+        else
+        {
+            ppm_value = adc;
+        }
 #endif
         // ppm_value = (uint16_t)(143.82*Voltage*Voltage*Voltage*Voltage - 418.29*Voltage*Voltage*Voltage + 458.42*Voltage*Voltage + 183.44*Voltage - 15.603);
         // y = 405.5x - 0.0594
-        ppm_value = (uint16_t)(405.5*Voltage - 0.0594);
+        // ppm_value = ?
 #if defined DEBUG
         // temp_t = analog_read(NTC_ADC_CHN); 
         // _delay_ms(100);
@@ -646,13 +621,21 @@ int main(void)
         text[2] = (adc/10)%10 +0x30;
         text[3] = adc%10 +0x30;
         text[4] = ' ';
-        text[5] = temp_t/1000 +0x30;
-        text[6] = (temp_t/100)%10 +0x30;
-        text[7] = (temp_t/10)%10 +0x30;
-        text[8] = temp_t%10 +0x30;
-
-        text[9] = '\r';
-        text[10] = '\n';
+#if defined DS18B20
+        text[5] = temp/1000 +0x30;
+        text[6] = (temp/100)%10 +0x30;
+        text[7] = (temp/10)%10 +0x30;
+        text[8] = temp%10 +0x30;
+        text[9] = ' ';
+#endif
+#if defined NTC
+        text[10] = temp_t/1000 +0x30;
+        text[11] = (temp_t/100)%10 +0x30;
+        text[12] = (temp_t/10)%10 +0x30;
+        text[13] = temp_t%10 +0x30;
+#endif
+        text[14] = '\r';
+        text[15] = '\n';
         uart_write(text,sizeof(text));
 #endif
 #if defined TM1637

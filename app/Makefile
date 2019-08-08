@@ -26,7 +26,8 @@ ifeq ($(DEVICE),stm8s103f3)
 endif
 
 CPPFLAGS = -I$(COMMONDIR)
-CFLAGS = --Werror --std-sdcc99 -mstm8 $(DEFINES)
+CFLAGS = --std-sdcc99 -mstm8 $(DEFINES) \
+         --Werror
 LDFLAGS = -lstm8 -mstm8 --out-fmt-ihx
 
 .PHONY: all clean flash
